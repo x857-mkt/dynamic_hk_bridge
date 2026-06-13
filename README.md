@@ -1,6 +1,6 @@
 # Apple Home 動態標籤橋接器 (Dynamic HomeKit Bridge)
 
-這是一個專為 Home Assistant 設計的自訂整合，允許您將複雜的『實體』動態橋接至 Apple HomeKit。
+這是一個專為 Home Assistant 設計的自訂整合，允許您將複雜的『實體』動態橋接至 Apple HomeKit。  
 透過這個套件，您可以更靈活地管理哪些裝置要出現在 Apple 的「家庭」App 中，並隨時調整更新速度，讓整個系統用起來更順手。
 
 ---
