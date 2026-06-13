@@ -4,33 +4,19 @@ import yaml
 from homeassistant.core import HomeAssistant, Event
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er, label_registry as lr
-from homeassistant.const import Platform
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "dynamic_hk_bridge"
 TARGET_FILE_NAME = "homekit_entities.yaml"
 
-PLATFORMS = [
-    Platform.SENSOR,
-    Platform.BINARY_SENSOR,
-    Platform.SWITCH,
-    Platform.LIGHT,
-    Platform.FAN,
-    Platform.MEDIA_PLAYER,
-    Platform.CAMERA,
-    Platform.REMOTE,
-    Platform.AUTOMATION,
-    Platform.SCRIPT,
-    Platform.BUTTON,
-    Platform.NUMBER,
-    Platform.EVENT,
-]
+# 我們不需要透過整合來「建立」實體，所以直接保持空白，避免底層衝突
+PLATFORMS = []
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    _LOGGER.info("🚀 [DHKB] 極簡白名單模式已啟動！")
+    _LOGGER.error("🚀 [DHKB] 極簡純白名單模式已成功啟動！")
 
     target_path = hass.config.path(TARGET_FILE_NAME)
     data = {"debounce_task": None}
@@ -39,7 +25,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         options = dict(entry.options or {})
         if not options:
             options = dict(entry.data or {})
-        # 現在只抓白名單標籤
         return {
             "show_label": options.get("show_label", "hk_show"),
             "debounce_time": int(options.get("debounce_time", 5))
@@ -52,7 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ent_reg = er.async_get(hass)
         lbl_reg = lr.async_get(hass)
 
-        # 獲取白名單標籤的 ID 與名稱
+        # 同時兼容 label_id 與標籤名稱
         show_label_ids = {show_label_target}
         for label_entry in lbl_reg.async_list_labels():
             if label_entry.name == show_label_target or label_entry.label_id == show_label_target:
@@ -60,7 +45,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         show_entities = []
 
-        # 遍歷系統掃描
+        # 全域實體掃描
         for entity_id, entity_entry in ent_reg.entities.items():
             entity_labels = entity_entry.labels if hasattr(entity_entry, "labels") else getattr(entity_entry, "labels", set())
             if not entity_labels:
@@ -74,10 +59,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         final_entities = show_entities
 
-        # 🛡️ 核彈防護罩機制：如果名單是空的，原生 HomeKit 會暴走全開
-        # 所以我們塞一個假的實體給它，強制它保持安靜
+        # 🛡️ 核彈防護罩：如果是空的，塞入虛擬實體防止 HomeKit 暴走全開
         if total_show == 0:
-            _LOGGER.error("⚠️ [DHKB] 警告：白名單為空！已啟動防爆走機制，注入虛擬實體以阻擋 HomeKit 全開。")
+            _LOGGER.error("⚠️ [DHKB] 警告：白名單為空！已啟動防護機制，注入虛擬實體以阻擋 HomeKit 全開。")
             final_entities = ["sensor.dhkb_safe_dummy"]
         else:
             _LOGGER.error(f"📌 [DHKB] 準備放行的實體有：{', '.join(final_entities)}")
@@ -90,13 +74,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error(f"❌ [DHKB] 寫入失敗: {str(e)}")
 
-        # 強制注入原生 HomeKit
+        # 強制注入原生 HomeKit 並重載
         hk_reg = hass.data.get("homekit")
         if hk_reg and isinstance(hk_reg, dict):
             for hk_key, hk_instance in hk_reg.items():
                 if hasattr(hk_instance, "instance") and hk_instance.instance:
                     hk_instance.instance.file_include_entities = final_entities
-                    _LOGGER.error(f"🚀 [DHKB] 已將 {len(final_entities)} 個實體強制灌入: {hk_key}")
+                    _LOGGER.error(f"🚀 [DHKB] 已將過濾清單強制灌入: {hk_key}")
 
         try:
             await hass.services.async_call("homekit", "reload")
@@ -128,7 +112,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_listener = entry.add_update_listener(async_update_listener)
     entry.async_on_unload(unload_listener)
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    if PLATFORMS:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    
     hass.async_create_task(async_execute_sync())
 
     return True
@@ -137,4 +123,6 @@ async def async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None
     await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if PLATFORMS:
+        return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    return True
