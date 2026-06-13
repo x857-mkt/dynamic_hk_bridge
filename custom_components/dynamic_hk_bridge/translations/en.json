@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Setup Apple Home Dynamic Label Bridge",
+        "data": {
+          "show_label": "Include Label Name (Default: hk_show)",
+          "hide_label": "Exclude Label Name (Default: hk_hide)",
+          "debounce_time": "Debounce Delay in Seconds (Default: 5)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Dynamic Bridge Settings",
+        "data": {
+          "show_label": "Include Label Name",
+          "hide_label": "Exclude Label Name",
+          "debounce_time": "Debounce Delay in Seconds"
+        }
+      }
+    }
+  }
+}

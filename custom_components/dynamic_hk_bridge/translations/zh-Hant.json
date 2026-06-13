@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "設定 Apple Home 動態標籤橋接",
+        "data": {
+          "show_label": "白名單標籤名稱 (預設: hk_show)",
+          "hide_label": "黑名單標籤名稱 (預設: hk_hide)",
+          "debounce_time": "寫入防抖延遲秒數 (預設: 5)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "修改動態橋接器設定",
+        "data": {
+          "show_label": "白名單標籤名稱",
+          "hide_label": "黑名單標籤名稱",
+          "debounce_time": "寫入防抖延遲秒數"
+        }
+      }
+    }
+  }
+}
