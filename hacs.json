@@ -1,8 +1,7 @@
 {
   "name": "Apple Home 動態標籤橋接器",
-  "content_in_root": false,
-  "zip_release": false,
-  "filename": null,
-  "manifest": null,
-  "country": []
+  "render_readme": true,
+  "homeassistant": "2026.1.0",
+  "iot_class": "local_push",
+  "category": "integration"
 }
