@@ -1,128 +1,84 @@
 import logging
-import asyncio
-import yaml
-from homeassistant.core import HomeAssistant, Event
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import entity_registry as er, label_registry as lr
+import voluptuous as vol
+from homeassistant import config_entries
+from homeassistant.core import callback
+from homeassistant.data_entry_flow import FlowResult
 
 _LOGGER = logging.getLogger(__name__)
-DOMAIN = "dynamic_hk_bridge"
-TARGET_FILE_NAME = "homekit_entities.yaml"
 
-# 我們不需要透過整合來「建立」實體，所以直接保持空白，避免底層衝突
-PLATFORMS = []
+class DynamicHKBridgeConfigFlow(config_entries.ConfigFlow, domain="dynamic_hk_bridge"):
+    """處理初次安裝時的設定流"""
+    VERSION = 1
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    return True
+    async def async_step_user(self, user_input=None) -> FlowResult:
+        # 防止重複安裝
+        if self._async_current_entries():
+            return self.async_abort(reason="single_instance_allowed")
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    _LOGGER.error("🚀 [DHKB] 極簡純白名單模式已成功啟動！")
+        if user_input is not None:
+            return self.async_create_entry(
+                title="Apple Home 動態標籤橋接", 
+                data=user_input
+            )
 
-    target_path = hass.config.path(TARGET_FILE_NAME)
-    data = {"debounce_task": None}
+        # 初始安裝欄位
+        data_schema = vol.Schema({
+            vol.Required("show_label", default="hk_show"): str,
+            vol.Required("hide_label", default="hk_hide"): str,
+            vol.Required("debounce_time", default=5): int,
+        })
 
-    def get_current_settings():
-        options = dict(entry.options or {})
-        if not options:
-            options = dict(entry.data or {})
-        return {
-            "show_label": options.get("show_label", "hk_show"),
-            "debounce_time": int(options.get("debounce_time", 5))
-        }
+        return self.async_show_form(step_id="user", data_schema=data_schema)
 
-    async def async_execute_sync():
-        settings = get_current_settings()
-        show_label_target = settings["show_label"]
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
+        """建立選項流實例"""
+        return DynamicHKBridgeOptionsFlowHandler(config_entry)
 
-        ent_reg = er.async_get(hass)
-        lbl_reg = lr.async_get(hass)
 
-        # 同時兼容 label_id 與標籤名稱
-        show_label_ids = {show_label_target}
-        for label_entry in lbl_reg.async_list_labels():
-            if label_entry.name == show_label_target or label_entry.label_id == show_label_target:
-                show_label_ids.add(label_entry.label_id)
+class DynamicHKBridgeOptionsFlowHandler(config_entries.OptionsFlow):
+    """處理點擊『設定 (Options)』後的選單異動，具備高相容性防禦機制"""
 
-        show_entities = []
-
-        # 全域實體掃描
-        for entity_id, entity_entry in ent_reg.entities.items():
-            entity_labels = entity_entry.labels if hasattr(entity_entry, "labels") else getattr(entity_entry, "labels", set())
-            if not entity_labels:
-                entity_labels = set()
-
-            if entity_labels & show_label_ids:
-                show_entities.append(entity_id)
-
-        total_show = len(show_entities)
-        _LOGGER.error(f"🔍 [DHKB] 極簡計算：具備 {show_label_target} 的總數: {total_show}")
-
-        final_entities = show_entities
-
-        # 🛡️ 核彈防護罩：如果是空的，塞入虛擬實體防止 HomeKit 暴走全開
-        if total_show == 0:
-            _LOGGER.error("⚠️ [DHKB] 警告：白名單為空！已啟動防護機制，注入虛擬實體以阻擋 HomeKit 全開。")
-            final_entities = ["sensor.dhkb_safe_dummy"]
-        else:
-            _LOGGER.error(f"📌 [DHKB] 準備放行的實體有：{', '.join(final_entities)}")
-
-        # 寫入 YAML
-        yaml_data = {"filter": {"include_entities": final_entities}}
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """初始化選項流，全面相容新舊版 HA 核心核心"""
         try:
-            with open(target_path, "w", encoding="utf-8") as f:
-                yaml.dump(yaml_data, f, allow_unicode=True, default_flow_style=False)
-        except Exception as e:
-            _LOGGER.error(f"❌ [DHKB] 寫入失敗: {str(e)}")
+            # 嘗試以新版 HA 規格初始化（建構子需傳入 config_entry）
+            super().__init__(config_entry)
+        except TypeError:
+            # 若失敗，則退回舊版 HA 規格初始化
+            super().__init__()
+        
+        #self.config_entry = config_entry
 
-        # 強制注入原生 HomeKit 並重載
-        hk_reg = hass.data.get("homekit")
-        if hk_reg and isinstance(hk_reg, dict):
-            for hk_key, hk_instance in hk_reg.items():
-                if hasattr(hk_instance, "instance") and hk_instance.instance:
-                    hk_instance.instance.file_include_entities = final_entities
-                    _LOGGER.error(f"🚀 [DHKB] 已將過濾清單強制灌入: {hk_key}")
+    async def async_step_init(self, user_input=None) -> FlowResult:
+        """選項選單的初始步驟"""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
 
+        # 1. 安全提取現有設定，防止任何 AttributeError 導致 500 錯誤
+        current_options = {}
+        if hasattr(self, "config_entry") and self.config_entry:
+            current_options = dict(self.config_entry.options or self.config_entry.data or {})
+        
+        # 2. 【核心修復】強制轉換型態，徹底防止 Voluptuous 驗證預設值時崩潰
+        default_show = str(current_options.get("show_label", "hk_show"))
+        default_hide = str(current_options.get("hide_label", "hk_hide"))
         try:
-            await hass.services.async_call("homekit", "reload")
-            _LOGGER.error("✨ [DHKB] 成功觸發 HomeKit 重載！")
-        except Exception as e:
-            _LOGGER.error(f"❌ [DHKB] 重載失敗: {str(e)}")
+            default_debounce = int(current_options.get("debounce_time", 5))
+        except (ValueError, TypeError):
+            default_debounce = 5
 
-    async def async_handle_entity_updated(event: Event) -> None:
-        action = event.data.get("action")
-        if action != "update":
-            return
+        _LOGGER.debug(
+            "[DHKB] 載入設定選單成功。目前數值: show=%s, hide=%s, debounce=%d", 
+            default_show, default_hide, default_debounce
+        )
 
-        settings = get_current_settings()
-        debounce_time = settings["debounce_time"]
+        # 3. 建立嚴謹的安全 Schema
+        options_schema = vol.Schema({
+            vol.Required("show_label", default=default_show): str,
+            vol.Required("hide_label", default=default_hide): str,
+            vol.Required("debounce_time", default=default_debounce): int,
+        })
 
-        if data["debounce_task"] and not data["debounce_task"].done():
-            data["debounce_task"].cancel()
-
-        async def delay_execution():
-            await asyncio.sleep(debounce_time)
-            await async_execute_sync()
-
-        data["debounce_task"] = hass.async_create_task(delay_execution())
-
-    entry.async_on_unload(
-        hass.bus.async_listen("entity_registry_updated", async_handle_entity_updated)
-    )
-
-    unload_listener = entry.add_update_listener(async_update_listener)
-    entry.async_on_unload(unload_listener)
-
-    if PLATFORMS:
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
-    hass.async_create_task(async_execute_sync())
-
-    return True
-
-async def async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
-
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    if PLATFORMS:
-        return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    return True
+        return self.async_show_form(step_id="init", data_schema=options_schema)

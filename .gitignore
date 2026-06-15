@@ -1,2 +1,5 @@
+__pycache__/
+*.pyc
+homekit_entities.yaml
 .DS_Store
 **/DS_Store
